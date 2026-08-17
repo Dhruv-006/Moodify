@@ -181,15 +181,19 @@ class MoodProvider extends ChangeNotifier {
     if (_userId == null) return;
 
     final index = _entries.indexWhere((e) => e.id == entryId);
-    if (index < 0) return;
+    final existsLocally = index >= 0;
 
-    // 1. Store previous state
-    final previousEntries = List<MoodEntry>.from(_entries);
+    List<MoodEntry>? previousEntries;
 
-    // 2. Optimistic update
-    _entries[index] = _entries[index].copyWith(note: note);
-    _dataVersion++;
-    notifyListeners();
+    if (existsLocally) {
+      // 1. Store previous state
+      previousEntries = List<MoodEntry>.from(_entries);
+
+      // 2. Optimistic update
+      _entries[index] = _entries[index].copyWith(note: note);
+      _dataVersion++;
+      notifyListeners();
+    }
 
     try {
       // 3. Firestore mutation
@@ -197,8 +201,10 @@ class MoodProvider extends ChangeNotifier {
     } catch (e) {
       // 4. Rollback on failure
       debugPrint('Auto-save note failed: $e');
-      _entries = previousEntries;
-      _dataVersion++;
+      if (existsLocally && previousEntries != null) {
+        _entries = previousEntries;
+        _dataVersion++;
+      }
       _errorMessage = 'Auto-save failed. Check connection.';
       notifyListeners();
     }
@@ -208,13 +214,20 @@ class MoodProvider extends ChangeNotifier {
   Future<void> deleteEntry(String entryId) async {
     if (_userId == null) return;
 
-    // 1. Store previous state
-    final previousEntries = List<MoodEntry>.from(_entries);
+    final index = _entries.indexWhere((e) => e.id == entryId);
+    final existsLocally = index >= 0;
 
-    // 2. Optimistic removal
-    _entries.removeWhere((e) => e.id == entryId);
-    _dataVersion++;
-    notifyListeners();
+    List<MoodEntry>? previousEntries;
+
+    if (existsLocally) {
+      // 1. Store previous state
+      previousEntries = List<MoodEntry>.from(_entries);
+
+      // 2. Optimistic removal
+      _entries.removeAt(index);
+      _dataVersion++;
+      notifyListeners();
+    }
 
     try {
       // 3. Firestore mutation
@@ -222,8 +235,10 @@ class MoodProvider extends ChangeNotifier {
     } catch (e) {
       // 4. Rollback on failure
       debugPrint('Delete entry failed: $e');
-      _entries = previousEntries;
-      _dataVersion++;
+      if (existsLocally && previousEntries != null) {
+        _entries = previousEntries;
+        _dataVersion++;
+      }
       _errorMessage = 'Failed to delete mood. Please try again.';
       notifyListeners();
     }

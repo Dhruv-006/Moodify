@@ -265,7 +265,7 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
         
         // Ensure any pending text is saved before we pop the route
         _debounce?.cancel();
-        await _flushSaveNote();
+        _flushSaveNote();
         
         if (context.mounted) {
           Navigator.of(context).pop();
@@ -293,7 +293,7 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
                 // If AppBar back is pressed, manually trigger the flush 
                 // (PopScope handles the system back button)
                 _debounce?.cancel();
-                await _flushSaveNote();
+                _flushSaveNote();
                 if (context.mounted) Navigator.maybePop(context);
               },
             ),
