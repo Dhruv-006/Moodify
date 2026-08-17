@@ -81,7 +81,7 @@ class PremiumSummaryCard extends StatelessWidget {
               Container(width: 1, height: 40, color: theme.colorScheme.outlineVariant),
               Expanded(
                 child: _SummaryMetric(
-                  label: 'Current Streak',
+                  label: 'Longest Streak',
                   value: '$streak days',
                   icon: Icons.local_fire_department_rounded,
                   color: Colors.orange,

@@ -338,7 +338,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
               // Gender Dropdown
               DropdownButtonFormField<String>(
-                value: _selectedGender,
+                initialValue: _selectedGender,
                 items: _genderOptions.map((String gender) {
                   return DropdownMenuItem<String>(
                     value: gender,

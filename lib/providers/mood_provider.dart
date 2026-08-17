@@ -3,16 +3,44 @@ import 'package:flutter/material.dart';
 import '../core/services/firebase_service.dart';
 import '../models/mood_model.dart';
 
+class _CacheEntry<T> {
+  final int version;
+  final T data;
+  _CacheEntry(this.version, this.data);
+}
+
 class MoodProvider extends ChangeNotifier {
   final FirebaseService _firebaseService = FirebaseService();
 
   List<MoodEntry> _entries = [];
   bool _isLoading = false;
+  String? _errorMessage;
   String? _userId;
   StreamSubscription? _subscription;
 
+  int _dataVersion = 0;
+  final Map<String, _CacheEntry> _analyticsCache = {};
+
+  T _memoize<T>(String key, T Function() compute) {
+    final entry = _analyticsCache[key];
+    if (entry != null && entry.version == _dataVersion) {
+      return entry.data as T;
+    }
+    final result = compute();
+    _analyticsCache[key] = _CacheEntry<T>(_dataVersion, result);
+    return result;
+  }
+
   List<MoodEntry> get entries => _entries;
   bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
+
+  void clearError() {
+    if (_errorMessage != null) {
+      _errorMessage = null;
+      Future.microtask(() => notifyListeners());
+    }
+  }
 
   /// Set the current user and load their mood entries
   void setUser(String? userId) {
@@ -22,6 +50,7 @@ class MoodProvider extends ChangeNotifier {
 
     if (userId == null) {
       _entries = [];
+      _dataVersion++;
       Future.microtask(() => notifyListeners());
       return;
     }
@@ -33,30 +62,19 @@ class MoodProvider extends ChangeNotifier {
     _isLoading = true;
     Future.microtask(() => notifyListeners());
 
-    // 1. Manually fetch data once to guarantee it displays instantly
-    try {
-      final initialData = await _firebaseService.getMoodEntries(userId);
-      if (_userId == userId) {
-        _entries = initialData;
-        _isLoading = false;
-        notifyListeners();
-      }
-    } catch (e) {
-      print('Manual fetch error: $e');
-    }
-
-    // 2. Set up the real-time listener for future updates
+    // Set up the real-time listener for initial data and future updates
     _subscription?.cancel();
     _subscription = _firebaseService
         .moodEntriesStream(userId)
         .listen(
           (entries) {
             _entries = entries;
+            _dataVersion++;
             _isLoading = false;
             notifyListeners();
           },
           onError: (error) {
-            print('MoodProvider stream error: $error');
+            debugPrint('MoodProvider stream error: $error');
             if (error.toString().contains('permission-denied')) {
               Future.delayed(const Duration(seconds: 2), () {
                 if (_userId == userId) _listenToEntries(userId);
@@ -78,8 +96,10 @@ class MoodProvider extends ChangeNotifier {
 
     try {
       _entries = await _firebaseService.getMoodEntries(_userId!);
+      _dataVersion++;
     } catch (e) {
-      // Keep existing entries on error
+      _errorMessage = 'Failed to load entries.';
+      debugPrint('Load entries error: $e');
     }
 
     _isLoading = false;
@@ -97,13 +117,33 @@ class MoodProvider extends ChangeNotifier {
       activities: moodData.activities,
     );
 
+    // 1. Store previous state
+    final previousEntries = List<MoodEntry>.from(_entries);
+    
+    // 2. Optimistic update
+    final optimisticEntry = entry.copyWith(id: 'temp_${DateTime.now().millisecondsSinceEpoch}');
+    _entries.insert(0, optimisticEntry);
+    _dataVersion++;
+    notifyListeners();
+
     try {
+      // 3. Firestore mutation
       final id = await _firebaseService.addMoodEntry(_userId!, entry);
-      // Optimistic update — the stream will also update
-      _entries.insert(0, entry.copyWith(id: id));
-      notifyListeners();
+      
+      // 4. Update the temporary ID with the real one
+      final index = _entries.indexWhere((e) => e.id == optimisticEntry.id);
+      if (index >= 0) {
+        _entries[index] = entry.copyWith(id: id);
+        _dataVersion++;
+        notifyListeners();
+      }
     } catch (e) {
-      // Stream will reconcile if needed
+      // 5. Rollback on failure
+      debugPrint('Add entry failed: $e');
+      _entries = previousEntries;
+      _dataVersion++;
+      _errorMessage = 'Failed to save mood. Please check your connection.';
+      notifyListeners();
     }
   }
 
@@ -113,15 +153,26 @@ class MoodProvider extends ChangeNotifier {
     final entry = _entries[index];
     if (entry.id == null) return;
 
+    // 1. Store previous state
+    final previousEntries = List<MoodEntry>.from(_entries);
+
+    // 2. Optimistic update
+    _entries[index] = entry.copyWith(note: note);
+    _dataVersion++;
+    notifyListeners();
+
     try {
+      // 3. Firestore mutation
       await _firebaseService.updateMoodEntry(_userId!, entry.id!, {
         'note': note,
       });
-      // Optimistic update
-      _entries[index] = entry.copyWith(note: note);
-      notifyListeners();
     } catch (e) {
-      // Stream will reconcile
+      // 4. Rollback on failure
+      debugPrint('Update note failed: $e');
+      _entries = previousEntries;
+      _dataVersion++;
+      _errorMessage = 'Failed to update note. Please try again.';
+      notifyListeners();
     }
   }
 
@@ -132,12 +183,24 @@ class MoodProvider extends ChangeNotifier {
     final index = _entries.indexWhere((e) => e.id == entryId);
     if (index < 0) return;
 
+    // 1. Store previous state
+    final previousEntries = List<MoodEntry>.from(_entries);
+
+    // 2. Optimistic update
+    _entries[index] = _entries[index].copyWith(note: note);
+    _dataVersion++;
+    notifyListeners();
+
     try {
+      // 3. Firestore mutation
       await _firebaseService.updateMoodEntry(_userId!, entryId, {'note': note});
-      _entries[index] = _entries[index].copyWith(note: note);
-      notifyListeners();
     } catch (e) {
-      // Stream will reconcile
+      // 4. Rollback on failure
+      debugPrint('Auto-save note failed: $e');
+      _entries = previousEntries;
+      _dataVersion++;
+      _errorMessage = 'Auto-save failed. Check connection.';
+      notifyListeners();
     }
   }
 
@@ -145,14 +208,24 @@ class MoodProvider extends ChangeNotifier {
   Future<void> deleteEntry(String entryId) async {
     if (_userId == null) return;
 
-    try {
-      // Optimistic removal
-      _entries.removeWhere((e) => e.id == entryId);
-      notifyListeners();
+    // 1. Store previous state
+    final previousEntries = List<MoodEntry>.from(_entries);
 
+    // 2. Optimistic removal
+    _entries.removeWhere((e) => e.id == entryId);
+    _dataVersion++;
+    notifyListeners();
+
+    try {
+      // 3. Firestore mutation
       await _firebaseService.deleteMoodEntry(_userId!, entryId);
     } catch (e) {
-      // Stream will reconcile if needed
+      // 4. Rollback on failure
+      debugPrint('Delete entry failed: $e');
+      _entries = previousEntries;
+      _dataVersion++;
+      _errorMessage = 'Failed to delete mood. Please try again.';
+      notifyListeners();
     }
   }
 
@@ -181,47 +254,53 @@ class MoodProvider extends ChangeNotifier {
   }
 
   MoodType? getMostFrequentMood() {
-    if (_entries.isEmpty) return null;
-    final weekEntries = getEntriesForWeek();
-    if (weekEntries.isEmpty) return _entries.first.mood;
+    return _memoize('mostFrequentMood', () {
+      if (_entries.isEmpty) return null;
+      final weekEntries = getEntriesForWeek();
+      if (weekEntries.isEmpty) return _entries.first.mood;
 
-    final counts = <String, int>{};
-    for (final entry in weekEntries) {
-      counts[entry.moodType] = (counts[entry.moodType] ?? 0) + 1;
-    }
+      final counts = <String, int>{};
+      for (final entry in weekEntries) {
+        counts[entry.moodType] = (counts[entry.moodType] ?? 0) + 1;
+      }
 
-    final maxEntry = counts.entries.reduce(
-      (a, b) => a.value >= b.value ? a : b,
-    );
-    return MoodType.values.firstWhere((e) => e.name == maxEntry.key);
+      final maxEntry = counts.entries.reduce(
+        (a, b) => a.value >= b.value ? a : b,
+      );
+      return MoodType.values.firstWhere((e) => e.name == maxEntry.key);
+    });
   }
 
   int getMoodCount(MoodType type) {
-    return getEntriesForWeek().where((e) => e.mood == type).length;
+    return _memoize('moodCount_${type.name}', () {
+      return getEntriesForWeek().where((e) => e.mood == type).length;
+    });
   }
 
   int getStreak() {
-    if (_entries.isEmpty) return 0;
+    return _memoize('streak', () {
+      if (_entries.isEmpty) return 0;
 
-    int streak = 0;
-    DateTime currentDate = DateTime.now();
+      int streak = 0;
+      DateTime currentDate = DateTime.now();
 
-    for (int i = 0; i < 365; i++) {
-      final checkDate = currentDate.subtract(Duration(days: i));
-      final hasEntry = _entries.any(
-        (e) =>
-            e.date.year == checkDate.year &&
-            e.date.month == checkDate.month &&
-            e.date.day == checkDate.day,
-      );
+      for (int i = 0; i < 365; i++) {
+        final checkDate = currentDate.subtract(Duration(days: i));
+        final hasEntry = _entries.any(
+          (e) =>
+              e.date.year == checkDate.year &&
+              e.date.month == checkDate.month &&
+              e.date.day == checkDate.day,
+        );
 
-      if (hasEntry) {
-        streak++;
-      } else if (i > 0) {
-        break;
+        if (hasEntry) {
+          streak++;
+        } else if (i > 0) {
+          break;
+        }
       }
-    }
-    return streak;
+      return streak;
+    });
   }
 
   Map<String, int> getWeeklyMoodCounts() {
@@ -286,43 +365,52 @@ class MoodProvider extends ChangeNotifier {
   }
 
   /// Parameterized mood distribution
-  Map<MoodType, int> getMoodDistributionFor(List<MoodEntry> entries) {
-    final dist = <MoodType, int>{};
-    for (final type in MoodType.values) {
-      final count = entries.where((e) => e.mood == type).length;
-      if (count > 0) dist[type] = count;
-    }
-    return dist;
+  Map<MoodType, int> getMoodDistributionForFilter(String filter) {
+    return _memoize('dist_$filter', () {
+      final entries = getEntriesForFilter(filter);
+      final dist = <MoodType, int>{};
+      for (final type in MoodType.values) {
+        final count = entries.where((e) => e.mood == type).length;
+        if (count > 0) dist[type] = count;
+      }
+      return dist;
+    });
   }
 
   /// Parameterized weekly mood counts by mood type
-  Map<String, Map<MoodType, int>> getWeeklyMoodCountsFor(List<MoodEntry> entries) {
-    final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final counts = <String, Map<MoodType, int>>{};
-    for (final day in days) {
-      counts[day] = {};
-    }
-    for (final entry in entries) {
-      final dayIndex = entry.date.weekday - 1;
-      if (dayIndex >= 0 && dayIndex < 7) {
-        final dayStr = days[dayIndex];
-        counts[dayStr]![entry.mood] = (counts[dayStr]![entry.mood] ?? 0) + 1;
+  Map<String, Map<MoodType, int>> getWeeklyMoodCountsForFilter(String filter) {
+    return _memoize('weeklyCounts_$filter', () {
+      final entries = getEntriesForFilter(filter);
+      final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      final counts = <String, Map<MoodType, int>>{};
+      for (final day in days) {
+        counts[day] = {};
       }
-    }
-    return counts;
+      for (final entry in entries) {
+        final dayIndex = entry.date.weekday - 1;
+        if (dayIndex >= 0 && dayIndex < 7) {
+          final dayStr = days[dayIndex];
+          counts[dayStr]![entry.mood] = (counts[dayStr]![entry.mood] ?? 0) + 1;
+        }
+      }
+      return counts;
+    });
   }
 
   /// Parameterized most frequent mood
-  MoodType? getMostFrequentMoodFor(List<MoodEntry> entries) {
-    if (entries.isEmpty) return null;
-    final counts = <String, int>{};
-    for (final entry in entries) {
-      counts[entry.moodType] = (counts[entry.moodType] ?? 0) + 1;
-    }
-    final maxEntry = counts.entries.reduce(
-      (a, b) => a.value >= b.value ? a : b,
-    );
-    return MoodType.values.firstWhere((e) => e.name == maxEntry.key);
+  MoodType? getMostFrequentMoodForFilter(String filter) {
+    return _memoize('freqMood_$filter', () {
+      final entries = getEntriesForFilter(filter);
+      if (entries.isEmpty) return null;
+      final counts = <String, int>{};
+      for (final entry in entries) {
+        counts[entry.moodType] = (counts[entry.moodType] ?? 0) + 1;
+      }
+      final maxEntry = counts.entries.reduce(
+        (a, b) => a.value >= b.value ? a : b,
+      );
+      return MoodType.values.firstWhere((e) => e.name == maxEntry.key);
+    });
   }
 
   /// Parameterized mood count for a specific type
@@ -331,26 +419,29 @@ class MoodProvider extends ChangeNotifier {
   }
 
   /// Longest consecutive-day streak within given entries
-  int getStreakFor(List<MoodEntry> entries) {
-    if (entries.isEmpty) return 0;
+  int getStreakForFilter(String filter) {
+    return _memoize('streak_$filter', () {
+      final entries = getEntriesForFilter(filter);
+      if (entries.isEmpty) return 0;
 
-    final uniqueDays = <DateTime>{};
-    for (final e in entries) {
-      uniqueDays.add(DateTime(e.date.year, e.date.month, e.date.day));
-    }
-    final sorted = uniqueDays.toList()..sort();
-
-    int maxStreak = 1;
-    int current = 1;
-    for (int i = 1; i < sorted.length; i++) {
-      if (sorted[i].difference(sorted[i - 1]).inDays == 1) {
-        current++;
-        if (current > maxStreak) maxStreak = current;
-      } else {
-        current = 1;
+      final uniqueDays = <DateTime>{};
+      for (final e in entries) {
+        uniqueDays.add(DateTime(e.date.year, e.date.month, e.date.day));
       }
-    }
-    return maxStreak;
+      final sorted = uniqueDays.toList()..sort();
+
+      int maxStreak = 1;
+      int current = 1;
+      for (int i = 1; i < sorted.length; i++) {
+        if (sorted[i].difference(sorted[i - 1]).inDays == 1) {
+          current++;
+          if (current > maxStreak) maxStreak = current;
+        } else {
+          current = 1;
+        }
+      }
+      return maxStreak;
+    });
   }
 
   /// Positive (happy, relaxed, motivated) vs Negative (sad, angry, stressed) ratio
@@ -378,27 +469,30 @@ class MoodProvider extends ChangeNotifier {
   }
 
   /// Monthly bar data: entries grouped by day-of-month and mood type
-  Map<int, Map<MoodType, int>> getMonthlyBarData(List<MoodEntry> entries) {
-    final data = <int, Map<MoodType, int>>{};
-    
-    // Determine the month and year from the first entry, or fallback to current month
-    DateTime date = DateTime.now();
-    if (entries.isNotEmpty) {
-      date = entries.first.date;
-    }
-    
-    final daysInMonth = DateTime(date.year, date.month + 1, 0).day;
-    for (int i = 1; i <= daysInMonth; i++) {
-      data[i] = {};
-    }
-    
-    for (final e in entries) {
-      final day = e.date.day;
-      if (data.containsKey(day)) {
-        data[day]![e.mood] = (data[day]![e.mood] ?? 0) + 1;
+  Map<int, Map<MoodType, int>> getMonthlyBarDataForFilter(String filter) {
+    return _memoize('monthlyBar_$filter', () {
+      final entries = getEntriesForFilter(filter);
+      final data = <int, Map<MoodType, int>>{};
+      
+      // Determine the month and year from the first entry, or fallback to current month
+      DateTime date = DateTime.now();
+      if (entries.isNotEmpty) {
+        date = entries.first.date;
       }
-    }
-    return data;
+      
+      final daysInMonth = DateTime(date.year, date.month + 1, 0).day;
+      for (int i = 1; i <= daysInMonth; i++) {
+        data[i] = {};
+      }
+      
+      for (final e in entries) {
+        final day = e.date.day;
+        if (data.containsKey(day)) {
+          data[day]![e.mood] = (data[day]![e.mood] ?? 0) + 1;
+        }
+      }
+      return data;
+    });
   }
 
   /// Weekly comparison: entries split into weeks within a month
@@ -435,35 +529,41 @@ class MoodProvider extends ChangeNotifier {
   }
 
   /// Get the "Best Day" based on average mood score
-  DateTime? getBestDay(List<MoodEntry> entries) {
-    if (entries.isEmpty) return null;
-    final map = _getEntriesByDate(entries);
-    DateTime? bestDay;
-    double highestScore = -1;
-    for (final entry in map.entries) {
-      final avg = entry.value.map((e) => _getMoodScore(e.mood)).reduce((a, b) => a + b) / entry.value.length;
-      if (avg > highestScore) {
-        highestScore = avg;
-        bestDay = entry.key;
+  DateTime? getBestDayForFilter(String filter) {
+    return _memoize('bestDay_$filter', () {
+      final entries = getEntriesForFilter(filter);
+      if (entries.isEmpty) return null;
+      final map = _getEntriesByDate(entries);
+      DateTime? bestDay;
+      double highestScore = -1;
+      for (final entry in map.entries) {
+        final avg = entry.value.map((e) => _getMoodScore(e.mood)).reduce((a, b) => a + b) / entry.value.length;
+        if (avg > highestScore) {
+          highestScore = avg;
+          bestDay = entry.key;
+        }
       }
-    }
-    return bestDay;
+      return bestDay;
+    });
   }
 
   /// Get the "Worst Day" based on average mood score
-  DateTime? getWorstDay(List<MoodEntry> entries) {
-    if (entries.isEmpty) return null;
-    final map = _getEntriesByDate(entries);
-    DateTime? worstDay;
-    double lowestScore = 999;
-    for (final entry in map.entries) {
-      final avg = entry.value.map((e) => _getMoodScore(e.mood)).reduce((a, b) => a + b) / entry.value.length;
-      if (avg < lowestScore) {
-        lowestScore = avg;
-        worstDay = entry.key;
+  DateTime? getWorstDayForFilter(String filter) {
+    return _memoize('worstDay_$filter', () {
+      final entries = getEntriesForFilter(filter);
+      if (entries.isEmpty) return null;
+      final map = _getEntriesByDate(entries);
+      DateTime? worstDay;
+      double lowestScore = 999;
+      for (final entry in map.entries) {
+        final avg = entry.value.map((e) => _getMoodScore(e.mood)).reduce((a, b) => a + b) / entry.value.length;
+        if (avg < lowestScore) {
+          lowestScore = avg;
+          worstDay = entry.key;
+        }
       }
-    }
-    return worstDay;
+      return worstDay;
+    });
   }
 
   /// Group entries by Date (ignoring time)
@@ -482,26 +582,29 @@ class MoodProvider extends ChangeNotifier {
   }
 
   /// Calculates a consistency score (0-100) based on logging frequency and mood variance
-  int getConsistencyScore(List<MoodEntry> entries) {
-    if (entries.isEmpty) return 0;
-    
-    // 1. Logging consistency (days logged / total days in period)
-    final dateMap = _getEntriesByDate(entries);
-    if (dateMap.isEmpty) return 0;
-    
-    final sortedDates = dateMap.keys.toList()..sort();
-    final firstDate = sortedDates.first;
-    final lastDate = sortedDates.last;
-    final daysInPeriod = lastDate.difference(firstDate).inDays + 1;
-    
-    // Cap at 30 days for reasonable scoring if period is huge
-    final periodToUse = daysInPeriod > 30 ? 30 : (daysInPeriod < 7 ? 7 : daysInPeriod);
-    
-    double loggingScore = (dateMap.length / periodToUse) * 100;
-    if (loggingScore > 100) loggingScore = 100;
-    
-    // We'll keep it simple and just use logging frequency as the "Consistency Score"
-    return loggingScore.round();
+  int getConsistencyScoreForFilter(String filter) {
+    return _memoize('consistency_$filter', () {
+      final entries = getEntriesForFilter(filter);
+      if (entries.isEmpty) return 0;
+      
+      // 1. Logging consistency (days logged / total days in period)
+      final dateMap = _getEntriesByDate(entries);
+      if (dateMap.isEmpty) return 0;
+      
+      final sortedDates = dateMap.keys.toList()..sort();
+      final firstDate = sortedDates.first;
+      final lastDate = sortedDates.last;
+      final daysInPeriod = lastDate.difference(firstDate).inDays + 1;
+      
+      // Cap at 30 days for reasonable scoring if period is huge
+      final periodToUse = daysInPeriod > 30 ? 30 : (daysInPeriod < 7 ? 7 : daysInPeriod);
+      
+      double loggingScore = (dateMap.length / periodToUse) * 100;
+      if (loggingScore > 100) loggingScore = 100;
+      
+      // We'll keep it simple and just use logging frequency as the "Consistency Score"
+      return loggingScore.round();
+    });
   }
 
   @override

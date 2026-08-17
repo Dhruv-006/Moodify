@@ -51,52 +51,37 @@ class _InsightsScreenState extends State<InsightsScreen>
     final filterName = _filters[_selectedFilter];
     final filteredEntries = moodProvider.getEntriesForFilter(filterName);
 
-    if (filteredEntries.isEmpty) {
-      return AdaptiveScaffold(
-        body: CustomScrollView(
-          slivers: [
-            SliverAppBar(
-              floating: true,
-              snap: true,
-              backgroundColor: Colors.transparent,
-              surfaceTintColor: Colors.transparent,
-              centerTitle: true,
-              title: Text(
-                'Insights',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurface,
-                ),
-              ),
-            ),
-            const EmptyInsightsView(),
-          ],
-        ),
-      );
-    }
 
-    final distribution = moodProvider.getMoodDistributionFor(filteredEntries);
-    final weeklyCounts = moodProvider.getWeeklyMoodCountsFor(filteredEntries);
-    final monthlyBarData = moodProvider.getMonthlyBarData(filteredEntries);
+
+    final distribution = moodProvider.getMoodDistributionForFilter(filterName);
+    final weeklyCounts = moodProvider.getWeeklyMoodCountsForFilter(filterName);
+    final monthlyBarData = moodProvider.getMonthlyBarDataForFilter(filterName);
 
     final monthlyMaxY = (monthlyBarData.values.fold<int>(0, (a, dayMap) {
       final dayTotal = dayMap.values.fold<int>(0, (sum, count) => sum + count);
       return a > dayTotal ? a : dayTotal;
     }) + 1).toDouble();
     double monthlyYInterval = 1;
-    if (monthlyMaxY > 20) monthlyYInterval = 10;
-    else if (monthlyMaxY > 10) monthlyYInterval = 5;
-    else if (monthlyMaxY > 5) monthlyYInterval = 2;
+    if (monthlyMaxY > 20) {
+      monthlyYInterval = 10;
+    } else if (monthlyMaxY > 10) {
+      monthlyYInterval = 5;
+    } else if (monthlyMaxY > 5) {
+      monthlyYInterval = 2;
+    }
 
     final weeklyMaxY = (weeklyCounts.values.fold<int>(0, (a, dayMap) {
       final dayTotal = dayMap.values.fold<int>(0, (sum, count) => sum + count);
       return a > dayTotal ? a : dayTotal;
     }) + 1).toDouble();
     double weeklyYInterval = 1;
-    if (weeklyMaxY > 20) weeklyYInterval = 10;
-    else if (weeklyMaxY > 10) weeklyYInterval = 5;
-    else if (weeklyMaxY > 5) weeklyYInterval = 2;
+    if (weeklyMaxY > 20) {
+      weeklyYInterval = 10;
+    } else if (weeklyMaxY > 10) {
+      weeklyYInterval = 5;
+    } else if (weeklyMaxY > 5) {
+      weeklyYInterval = 2;
+    }
 
     return AdaptiveScaffold(
       body: CustomScrollView(
@@ -200,8 +185,11 @@ class _InsightsScreenState extends State<InsightsScreen>
             child: SizedBox(height: 24),
           ),
 
-          // Premium Summary Card
-          SliverToBoxAdapter(
+          if (filteredEntries.isEmpty)
+            const EmptyInsightsView()
+          else ...[
+            // Premium Summary Card
+            SliverToBoxAdapter(
             child: TweenAnimationBuilder<double>(
               tween: Tween(begin: 0.0, end: 1.0),
               duration: const Duration(milliseconds: 600),
@@ -217,11 +205,11 @@ class _InsightsScreenState extends State<InsightsScreen>
               },
               child: PremiumSummaryCard(
                 totalEntries: filteredEntries.length,
-                streak: moodProvider.getStreakFor(filteredEntries),
-                mostFrequent: moodProvider.getMostFrequentMoodFor(filteredEntries),
-                bestDay: moodProvider.getBestDay(filteredEntries),
-                worstDay: moodProvider.getWorstDay(filteredEntries),
-                consistencyScore: moodProvider.getConsistencyScore(filteredEntries),
+                streak: moodProvider.getStreakForFilter(filterName),
+                mostFrequent: moodProvider.getMostFrequentMoodForFilter(filterName),
+                bestDay: moodProvider.getBestDayForFilter(filterName),
+                worstDay: moodProvider.getWorstDayForFilter(filterName),
+                consistencyScore: moodProvider.getConsistencyScoreForFilter(filterName),
               ),
             ),
           ),
@@ -630,7 +618,7 @@ class _InsightsScreenState extends State<InsightsScreen>
                 Builder(
                   builder: (context) {
                     final trendService = context.read<MoodTrendService>();
-                    final trend = trendService.analyze(moodProvider.getEntriesForWeek());
+                    final trend = trendService.analyze(filteredEntries);
                     if (trend.insightMessage.isEmpty) return const SizedBox.shrink();
                     
                     return TweenAnimationBuilder<double>(
@@ -682,6 +670,7 @@ class _InsightsScreenState extends State<InsightsScreen>
               ]),
             ),
           ),
+          ],
         ],
       ),
     );

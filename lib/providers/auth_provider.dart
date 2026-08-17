@@ -39,8 +39,8 @@ class AuthProvider extends ChangeNotifier {
               dob: profileData['dob'],
             );
           }
-        } catch (e) {
-          print('Error fetching user profile: $e');
+        } catch (e, stackTrace) {
+          debugPrint('Error fetching user profile: $e\n$stackTrace');
         }
       }
 
@@ -73,7 +73,8 @@ class AuthProvider extends ChangeNotifier {
       _errorMessage = _mapAuthError(e.code);
       notifyListeners();
       return false;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('Login unexpected error: $e\n$stackTrace');
       _isLoading = false;
       _errorMessage = 'An unexpected error occurred. Please try again.';
       notifyListeners();
@@ -105,12 +106,13 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } on FirebaseAuthException catch (e) {
-      print('Firebase Auth Exception in signUp: ${e.code} - ${e.message}');
+      debugPrint('Firebase Auth Exception in signUp: ${e.code} - ${e.message}');
       _isLoading = false;
       _errorMessage = _mapAuthError(e.code);
       notifyListeners();
       return false;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('SignUp unexpected error: $e\n$stackTrace');
       _isLoading = false;
       _errorMessage = 'An unexpected error occurred. Please try again.';
       notifyListeners();
@@ -145,7 +147,8 @@ class AuthProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
       return true;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('Google sign-in failed: $e\n$stackTrace');
       _isLoading = false;
       _errorMessage = 'Google sign-in failed. Please try again.';
       notifyListeners();
@@ -163,7 +166,8 @@ class AuthProvider extends ChangeNotifier {
       await _auth.signInAnonymously();
       _isLoading = false;
       notifyListeners();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('Guest sign-in failed: $e\n$stackTrace');
       _isLoading = false;
       _errorMessage = 'Could not sign in as guest. Please try again.';
       notifyListeners();
@@ -249,16 +253,16 @@ class AuthProvider extends ChangeNotifier {
               'dob': dob,
             }),
           ]);
-        } catch (e) {
-          print('Background update profile error: $e');
+        } catch (e, stackTrace) {
+          debugPrint('Background update profile error: $e\n$stackTrace');
         }
       });
 
       _isLoading = false;
       notifyListeners();
       return true;
-    } catch (e) {
-      print('Update profile error: $e');
+    } catch (e, stackTrace) {
+      debugPrint('Update profile error: $e\n$stackTrace');
       _isLoading = false;
       _errorMessage = 'Failed to update profile. Please try again.';
       notifyListeners();
@@ -276,7 +280,7 @@ class AuthProvider extends ChangeNotifier {
       final currentUser = _auth.currentUser;
       if (currentUser == null) throw Exception('No user logged in');
 
-      await currentUser.updateEmail(newEmail);
+      await currentUser.verifyBeforeUpdateEmail(newEmail);
 
       _isLoading = false;
       notifyListeners();
@@ -286,7 +290,8 @@ class AuthProvider extends ChangeNotifier {
       _errorMessage = _mapAuthError(e.code);
       notifyListeners();
       return false;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('Update email unexpected error: $e\n$stackTrace');
       _isLoading = false;
       _errorMessage = 'An unexpected error occurred.';
       notifyListeners();
@@ -314,7 +319,8 @@ class AuthProvider extends ChangeNotifier {
       _errorMessage = _mapAuthError(e.code);
       notifyListeners();
       return false;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('Update password unexpected error: $e\n$stackTrace');
       _isLoading = false;
       _errorMessage = 'An unexpected error occurred.';
       notifyListeners();

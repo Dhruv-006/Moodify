@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/mood_theme_provider.dart';
+import '../../providers/mood_provider.dart';
 import '../home/home_screen.dart';
 import '../history/history_screen.dart';
 import '../insights/insights_screen.dart';
@@ -16,6 +17,40 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
+  late final MoodProvider _moodProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    _moodProvider = context.read<MoodProvider>();
+    _moodProvider.addListener(_onMoodError);
+  }
+
+  void _onMoodError() {
+    if (!mounted) return;
+    
+    final errorMessage = _moodProvider.errorMessage;
+    if (errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            errorMessage,
+            style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.white),
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Theme.of(context).colorScheme.error,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+      _moodProvider.clearError();
+    }
+  }
+
+  @override
+  void dispose() {
+    _moodProvider.removeListener(_onMoodError);
+    super.dispose();
+  }
 
   void _switchTab(int index) {
     setState(() => _currentIndex = index);

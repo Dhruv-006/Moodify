@@ -25,6 +25,7 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
   final _journalController = TextEditingController();
   Timer? _debounce;
   String _saveStatus = '';
+  String _lastSavedNote = '';
   late MoodProvider _moodProvider;
   late AnimationController _masterController;
   late AnimationController _emojiController;
@@ -198,39 +199,42 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
   }
 
   void _autoSaveNote() {
-    final moodProvider = context.read<MoodProvider>();
-    final note = _journalController.text.trim();
-    if (note.isEmpty) return;
+    _flushSaveNote();
+  }
 
-    final entries = moodProvider.entries;
+  Future<void> _flushSaveNote() async {
+    final note = _journalController.text.trim();
+    if (note == _lastSavedNote) return; // Prevent duplicate saves
+
+    final entries = _moodProvider.entries;
     final entry = entries.firstWhere(
       (e) => e.mood == widget.moodData.type && e.id != null,
       orElse: () => MoodEntry(moodType: '', date: DateTime.now()),
     );
+
     if (entry.id != null) {
-      moodProvider.updateNoteById(entry.id!, note);
       if (mounted) {
-        setState(() => _saveStatus = 'Saved ✓');
+        setState(() => _saveStatus = 'Saving...');
+      }
+      
+      try {
+        await _moodProvider.updateNoteById(entry.id!, note);
+        _lastSavedNote = note; // Mark as saved only after success
+        if (mounted) {
+          setState(() => _saveStatus = 'Saved ✓');
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => _saveStatus = 'Error saving');
+        }
       }
     }
   }
 
   @override
   void dispose() {
-    // Flush any pending auto-save
     _debounce?.cancel();
     _journalController.removeListener(_onJournalChanged);
-    final note = _journalController.text.trim();
-    if (note.isNotEmpty) {
-      final entries = _moodProvider.entries;
-      final entry = entries.firstWhere(
-        (e) => e.mood == widget.moodData.type && e.id != null,
-        orElse: () => MoodEntry(moodType: '', date: DateTime.now()),
-      );
-      if (entry.id != null) {
-        _moodProvider.updateNoteById(entry.id!, note);
-      }
-    }
     _journalController.dispose();
     _masterController.dispose();
     _emojiController.dispose();
@@ -254,7 +258,20 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
     final theme = Theme.of(context);
     final mood = widget.moodData;
 
-    return AdaptiveScaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        
+        // Ensure any pending text is saved before we pop the route
+        _debounce?.cancel();
+        await _flushSaveNote();
+        
+        if (context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: AdaptiveScaffold(
       body: CustomScrollView(
         slivers: [
           // ── Hero AppBar with mood gradient ──
@@ -272,7 +289,13 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
                 ),
                 child: const Icon(Icons.arrow_back_rounded, color: Colors.white),
               ),
-              onPressed: () => Navigator.pop(context),
+              onPressed: () async {
+                // If AppBar back is pressed, manually trigger the flush 
+                // (PopScope handles the system back button)
+                _debounce?.cancel();
+                await _flushSaveNote();
+                if (context.mounted) Navigator.maybePop(context);
+              },
             ),
             flexibleSpace: FlexibleSpaceBar(
               background: Stack(
@@ -645,6 +668,7 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
           ),
         ],
       ),
+    ),
     );
   }
 
