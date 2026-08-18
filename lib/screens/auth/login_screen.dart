@@ -59,7 +59,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _continueAsGuest() async {
     final auth = context.read<AuthProvider>();
-    await auth.continueAsGuest();
+    final success = await auth.continueAsGuest();
+    if (!success && mounted && auth.errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(auth.errorMessage!),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
     // Navigation is handled by auth state listener in main.dart
   }
 
@@ -240,7 +249,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
-                              onPressed: () => _showComingSoon(),
+                              onPressed: _showForgotPasswordDialog,
                               child: Text(
                                 'Forgot Password?',
                                 style: GoogleFonts.manrope(
@@ -259,12 +268,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             height: 56,
                             child: DecoratedBox(
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    theme.colorScheme.primary,
-                                    theme.colorScheme.primaryContainer,
-                                  ],
-                                ),
+                                color: theme.colorScheme.primary,
                                 borderRadius: BorderRadius.circular(9999),
                                 boxShadow: [
                                   BoxShadow(
@@ -365,10 +369,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(
-                                    Icons.g_mobiledata,
-                                    size: 28,
-                                    color: theme.colorScheme.onSurface,
+                                  Image.asset(
+                                    'assets/images/google_logo.png',
+                                    height: 24,
+                                    width: 24,
                                   ),
                                   const SizedBox(width: 12),
                                   Text(
@@ -464,19 +468,146 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void _showComingSoon() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Feature coming soon!',
-          style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 2),
-      ),
+
+  void _showForgotPasswordDialog() {
+    final theme = Theme.of(context);
+    final emailController = TextEditingController(text: _emailController.text);
+    final formKey = GlobalKey<FormState>();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              title: Text(
+                'Reset Password',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              content: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Enter your email address to receive a password reset link.',
+                      style: GoogleFonts.manrope(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      enabled: !isSubmitting,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Please enter your email';
+                        if (!v.contains('@')) return 'Please enter a valid email';
+                        return null;
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Email Address',
+                        prefixIcon: Icon(
+                          Icons.mail_outline_rounded,
+                          size: 20,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.of(ctx).pop(),
+                  child: Text(
+                    'Cancel',
+                    style: GoogleFonts.manrope(
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                FilledButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          setState(() => isSubmitting = true);
+                          
+                          final auth = context.read<AuthProvider>();
+                          final success = await auth.resetPassword(emailController.text.trim());
+                          
+                          if (!ctx.mounted) return;
+                          
+                          if (success) {
+                            Navigator.of(ctx).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Password reset email sent. Check your inbox.',
+                                  style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+                                ),
+                                behavior: SnackBarBehavior.floating,
+                                backgroundColor: theme.colorScheme.primary,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                margin: const EdgeInsets.all(16),
+                              ),
+                            );
+                          } else {
+                            setState(() => isSubmitting = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  auth.errorMessage ?? 'Failed to send reset email.',
+                                  style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+                                ),
+                                behavior: SnackBarBehavior.floating,
+                                backgroundColor: theme.colorScheme.error,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                margin: const EdgeInsets.all(16),
+                              ),
+                            );
+                          }
+                        },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.primary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: isSubmitting
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: theme.colorScheme.onPrimary,
+                          ),
+                        )
+                      : Text(
+                          'Send Link',
+                          style: GoogleFonts.manrope(
+                            fontWeight: FontWeight.w700,
+                            color: theme.colorScheme.onPrimary,
+                          ),
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -346,14 +346,7 @@ class _BreathingScreenState extends State<BreathingScreen>
                             height: 80,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  theme.colorScheme.primary,
-                                  theme.colorScheme.primaryContainer,
-                                ],
-                              ),
+                              color: theme.colorScheme.primary,
                               boxShadow: [
                                 BoxShadow(
                                   color: theme.colorScheme.primary

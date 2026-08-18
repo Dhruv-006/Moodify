@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/user_model.dart';
 import '../core/services/firebase_service.dart';
 
@@ -120,6 +121,40 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// Send password reset email
+  Future<bool> resetPassword(String email) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      // Check if the email is actually registered first
+      final methods = await _auth.fetchSignInMethodsForEmail(email);
+      if (methods.isEmpty) {
+        _isLoading = false;
+        _errorMessage = 'No account found with this email.';
+        notifyListeners();
+        return false;
+      }
+
+      await _auth.sendPasswordResetEmail(email: email);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } on FirebaseAuthException catch (e) {
+      _isLoading = false;
+      _errorMessage = _mapAuthError(e.code);
+      notifyListeners();
+      return false;
+    } catch (e, stackTrace) {
+      debugPrint('Reset password unexpected error: $e\n$stackTrace');
+      _isLoading = false;
+      _errorMessage = 'An unexpected error occurred. Please try again.';
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Sign in with Google
   Future<bool> signInWithGoogle() async {
     _isLoading = true;
@@ -157,7 +192,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// Continue as anonymous guest
-  Future<void> continueAsGuest() async {
+  Future<bool> continueAsGuest() async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -166,34 +201,68 @@ class AuthProvider extends ChangeNotifier {
       await _auth.signInAnonymously();
       _isLoading = false;
       notifyListeners();
+      return true;
     } catch (e, stackTrace) {
       debugPrint('Guest sign-in failed: $e\n$stackTrace');
       _isLoading = false;
       _errorMessage = 'Could not sign in as guest. Please try again.';
       notifyListeners();
+      return false;
     }
   }
 
   /// Sign out
-  Future<void> logout() async {
+  Future<bool> logout() async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return true;
+
+    if (currentUser.isAnonymous) {
+      _isLoading = true;
+      notifyListeners();
+
+      // Check connectivity explicitly
+      final connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult.contains(ConnectivityResult.none)) {
+        _isLoading = false;
+        _errorMessage =
+            'An internet connection is required to log out of a guest account. We must securely delete your temporary data from our servers before closing the session.';
+        notifyListeners();
+        return false;
+      }
+
+      try {
+        await _firebaseService.deleteGuestData(currentUser.uid);
+        await currentUser.delete(); // Delete Firebase Auth user
+      } catch (e, stackTrace) {
+        debugPrint('Failed to delete guest data: $e\n$stackTrace');
+        _isLoading = false;
+        _errorMessage = 'Failed to clean up guest data. Please check your connection and try again.';
+        notifyListeners();
+        return false;
+      }
+
+      _isLoading = false;
+    } else {
+      try {
+        await _googleSignIn.signOut();
+      } catch (_) {}
+    }
+
     // 1. Immediately clear the local user state.
     // This synchronously triggers the ProxyProviders (MoodProvider, MoodThemeProvider)
     // to receive a null user, causing them to cancel their listeners and clear
     // their in-memory data *before* the async sign-out finishes.
     _user = null;
     notifyListeners();
-
-    try {
-      await _googleSignIn.signOut();
-    } catch (_) {
-      // Google sign out may fail if not signed in with Google — ignore
-    }
     
-    // 4. Sign out Firebase user
-    await _auth.signOut();
+    // 4. Sign out Firebase user (if they weren't just deleted)
+    try {
+      await _auth.signOut();
+    } catch (_) {}
 
     // We intentionally DO NOT call clearPersistence() or terminate() here to 
     // preserve logical user isolation without destroying Firestore cache stability.
+    return true;
   }
 
   /// Map Firebase error codes to user-friendly messages

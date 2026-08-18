@@ -65,4 +65,23 @@ class FirebaseService {
     final doc = await _firestore.collection('users').doc(userId).get();
     return doc.data();
   }
+
+  /// Delete all data for a guest user securely
+  Future<void> deleteGuestData(String userId) async {
+    // Force a server-side get to ensure we are actually online and have the complete list
+    final snapshot = await _moodsCollection(userId).get(const GetOptions(source: Source.server));
+    
+    final batch = _firestore.batch();
+    
+    // Delete all mood documents
+    for (var doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    
+    // Delete the root user profile document
+    batch.delete(_firestore.collection('users').doc(userId));
+    
+    // Commit the batch
+    await batch.commit();
+  }
 }

@@ -398,12 +398,7 @@ class _HomeScreenState extends State<HomeScreen>
                           height: 56,
                           child: DecoratedBox(
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  theme.colorScheme.primary,
-                                  theme.colorScheme.primaryContainer,
-                                ],
-                              ),
+                              color: theme.colorScheme.primary,
                               borderRadius: BorderRadius.circular(9999),
                               boxShadow: [
                                 BoxShadow(

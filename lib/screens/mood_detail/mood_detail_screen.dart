@@ -637,9 +637,7 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
                         height: 56,
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [mood.color, mood.darkColor],
-                            ),
+                            color: mood.color,
                             borderRadius: BorderRadius.circular(9999),
                             boxShadow: [
                               BoxShadow(
