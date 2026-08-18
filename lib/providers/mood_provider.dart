@@ -366,6 +366,8 @@ class MoodProvider extends ChangeNotifier {
   /// Get entries for a named filter
   List<MoodEntry> getEntriesForFilter(String filter) {
     switch (filter) {
+      case 'Today':
+        return getEntriesForToday();
       case 'This Week':
         return getEntriesForWeek();
       case 'This Month':

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../models/mood_model.dart';
 import '../../providers/mood_provider.dart';
 import '../../widgets/adaptive_scaffold.dart';
+import '../mood_detail/mood_detail_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -309,12 +310,42 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                         ),
                                       ],
                                       const SizedBox(height: 4),
-                                      Text(
-                                        timeStr,
-                                        style: GoogleFonts.manrope(
-                                          fontSize: 11,
-                                          color: theme.colorScheme.outline,
-                                        ),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            timeStr,
+                                            style: GoogleFonts.manrope(
+                                              fontSize: 11,
+                                              color: theme.colorScheme.outline,
+                                            ),
+                                          ),
+                                          if (entry.id != null)
+                                            GestureDetector(
+                                              onTap: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (context) => MoodDetailScreen(
+                                                      moodData: moodData,
+                                                      existingEntryId: entry.id,
+                                                      existingNote: entry.note,
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                              child: Text(
+                                                entry.note != null && entry.note!.isNotEmpty
+                                                    ? 'Edit Note'
+                                                    : 'Add Note',
+                                                style: GoogleFonts.manrope(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: theme.colorScheme.primary,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     ],
                                   ),

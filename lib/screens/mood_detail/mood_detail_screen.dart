@@ -13,8 +13,15 @@ import '../breathing/breathing_screen.dart';
 
 class MoodDetailScreen extends StatefulWidget {
   final MoodData moodData;
+  final String? existingEntryId;
+  final String? existingNote;
 
-  const MoodDetailScreen({super.key, required this.moodData});
+  const MoodDetailScreen({
+    super.key,
+    required this.moodData,
+    this.existingEntryId,
+    this.existingNote,
+  });
 
   @override
   State<MoodDetailScreen> createState() => _MoodDetailScreenState();
@@ -54,6 +61,11 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
   @override
   void initState() {
     super.initState();
+
+    if (widget.existingNote != null) {
+      _journalController.text = widget.existingNote!;
+      _lastSavedNote = widget.existingNote!;
+    }
 
     _masterController = AnimationController(
       duration: const Duration(milliseconds: 1200),
@@ -206,19 +218,24 @@ class _MoodDetailScreenState extends State<MoodDetailScreen>
     final note = _journalController.text.trim();
     if (note == _lastSavedNote) return; // Prevent duplicate saves
 
-    final entries = _moodProvider.entries;
-    final entry = entries.firstWhere(
-      (e) => e.mood == widget.moodData.type && e.id != null,
-      orElse: () => MoodEntry(moodType: '', date: DateTime.now()),
-    );
+    String? targetId = widget.existingEntryId;
 
-    if (entry.id != null) {
+    if (targetId == null) {
+      final entries = _moodProvider.entries;
+      final entry = entries.firstWhere(
+        (e) => e.mood == widget.moodData.type && e.id != null,
+        orElse: () => MoodEntry(moodType: '', date: DateTime.now()),
+      );
+      targetId = entry.id;
+    }
+
+    if (targetId != null) {
       if (mounted) {
         setState(() => _saveStatus = 'Saving...');
       }
       
       try {
-        await _moodProvider.updateNoteById(entry.id!, note);
+        await _moodProvider.updateNoteById(targetId, note);
         _lastSavedNote = note; // Mark as saved only after success
         if (mounted) {
           setState(() => _saveStatus = 'Saved ✓');

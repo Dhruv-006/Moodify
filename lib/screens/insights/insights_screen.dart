@@ -23,8 +23,8 @@ class InsightsScreen extends StatefulWidget {
 class _InsightsScreenState extends State<InsightsScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animController;
-  int _selectedFilter = 1; // Default: This Month
-  final _filters = ['This Week', 'This Month', 'Last Month', 'All Time'];
+  int _selectedFilter = 2; // Default: This Month
+  final _filters = ['Today', 'This Week', 'This Month', 'Last Month', 'All Time'];
 
   @override
   void initState() {
