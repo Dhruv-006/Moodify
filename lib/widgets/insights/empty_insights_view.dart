@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class EmptyInsightsView extends StatelessWidget {
-  const EmptyInsightsView({super.key});
+  final VoidCallback? onTrackMood;
+
+  const EmptyInsightsView({super.key, this.onTrackMood});
 
   @override
   Widget build(BuildContext context) {
@@ -48,14 +50,7 @@ class EmptyInsightsView extends StatelessWidget {
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(
-              onPressed: () {
-                // Navigate to the "Log Mood" screen or switch tab to Home.
-                // Assuming MainShell can be accessed, or we just rely on bottom nav.
-                // For now, this could just show a snackbar or trigger a callback if needed.
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Go to the Home tab to log a mood!")),
-                );
-              },
+              onPressed: onTrackMood,
               icon: const Icon(Icons.add_rounded),
               label: const Text('Track Mood'),
               style: ElevatedButton.styleFrom(

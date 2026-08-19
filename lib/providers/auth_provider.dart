@@ -13,11 +13,14 @@ class AuthProvider extends ChangeNotifier {
   UserModel? _user;
   bool _isLoading = false;
   String? _errorMessage;
+  String? _lastErrorCode;
 
   UserModel? get user => _user;
   bool get isLoggedIn => _user != null;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  /// Raw Firebase error code for field-specific error routing in UI
+  String? get lastErrorCode => _lastErrorCode;
 
   AuthProvider() {
     // Listen to Firebase auth state changes
@@ -62,21 +65,25 @@ class AuthProvider extends ChangeNotifier {
   Future<bool> login(String email, String password) async {
     _isLoading = true;
     _errorMessage = null;
+    _lastErrorCode = null;
     notifyListeners();
 
     try {
       await _auth.signInWithEmailAndPassword(email: email, password: password);
       _isLoading = false;
+      _lastErrorCode = null;
       notifyListeners();
       return true;
     } on FirebaseAuthException catch (e) {
       _isLoading = false;
+      _lastErrorCode = e.code;
       _errorMessage = _mapAuthError(e.code);
       notifyListeners();
       return false;
     } catch (e, stackTrace) {
       debugPrint('Login unexpected error: $e\n$stackTrace');
       _isLoading = false;
+      _lastErrorCode = 'unknown';
       _errorMessage = 'An unexpected error occurred. Please try again.';
       notifyListeners();
       return false;
@@ -287,7 +294,8 @@ class AuthProvider extends ChangeNotifier {
       case 'requires-recent-login':
         return 'This operation requires a recent login. Please log out and log back in, then try again.';
       default:
-        return 'Authentication failed ($code). Please try again.';
+        debugPrint('Unhandled auth error code: $code');
+        return 'Authentication failed. Please try again.';
     }
   }
 

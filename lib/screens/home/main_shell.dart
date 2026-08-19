@@ -67,7 +67,7 @@ class _MainShellState extends State<MainShell> {
     final screens = [
       HomeScreen(onViewInsights: () => _switchTab(2)),
       const HistoryScreen(),
-      const InsightsScreen(),
+      InsightsScreen(onTrackMood: () => _switchTab(0)),
       const ProfileScreen(),
     ];
 

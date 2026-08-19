@@ -367,10 +367,10 @@ class _SignupScreenState extends State<SignupScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
-                              Icons.g_mobiledata,
-                              size: 24,
-                              color: theme.colorScheme.onSurface,
+                            Image.asset(
+                              'assets/images/google_logo.png',
+                              height: 24,
+                              width: 24,
                             ),
                             const SizedBox(width: 12),
                             Text(

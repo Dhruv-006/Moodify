@@ -17,58 +17,121 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   final _formKey = GlobalKey<FormState>();
 
+  // Field-specific inline errors
+  String? _emailError;
+  String? _passwordError;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController.addListener(_onEmailChanged);
+    _passwordController.addListener(_onPasswordChanged);
+  }
+
   @override
   void dispose() {
+    _emailController.removeListener(_onEmailChanged);
+    _passwordController.removeListener(_onPasswordChanged);
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
+  void _onEmailChanged() {
+    if (_emailError != null) {
+      setState(() => _emailError = null);
+    }
+  }
+
+  void _onPasswordChanged() {
+    if (_passwordError != null) {
+      setState(() => _passwordError = null);
+    }
+  }
+
+  /// Routes a Firebase error code to the correct field
+  void _routeAuthError(String? code, String message) {
+    setState(() {
+      switch (code) {
+        case 'user-not-found':
+        case 'invalid-email':
+          _emailError = message;
+          _passwordError = null;
+          break;
+        case 'wrong-password':
+          _emailError = null;
+          _passwordError = message;
+          break;
+        case 'invalid-credential':
+          // Generic — show on password field since it's the actionable one
+          _emailError = null;
+          _passwordError = message;
+          break;
+        case 'too-many-requests':
+          _emailError = null;
+          _passwordError = message;
+          break;
+        case 'network-request-failed':
+          _emailError = null;
+          _passwordError = message;
+          break;
+        default:
+          // Unknown errors go to password field
+          _emailError = null;
+          _passwordError = message;
+          break;
+      }
+    });
+  }
+
+  void _clearAllErrors() {
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+    });
+  }
+
   void _login() async {
-    if (!_formKey.currentState!.validate()) return;
+    _clearAllErrors();
+
+    // Client-side validation
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    bool hasError = false;
+
+    if (email.isEmpty) {
+      setState(() => _emailError = 'Email is required.');
+      hasError = true;
+    } else if (!email.contains('@') || !email.contains('.')) {
+      setState(() => _emailError = 'Enter a valid email address.');
+      hasError = true;
+    }
+
+    if (password.isEmpty) {
+      setState(() => _passwordError = 'Password is required.');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
     final auth = context.read<AuthProvider>();
-    final success = await auth.login(
-      _emailController.text.trim(),
-      _passwordController.text,
-    );
+    final success = await auth.login(email, password);
     if (!success && mounted && auth.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(auth.errorMessage!),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
+      _routeAuthError(auth.lastErrorCode, auth.errorMessage!);
     }
     // Navigation is handled by auth state listener in main.dart
   }
 
   void _signInWithGoogle() async {
+    _clearAllErrors();
     final auth = context.read<AuthProvider>();
-    final success = await auth.signInWithGoogle();
-    if (!success && mounted && auth.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(auth.errorMessage!),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
-    }
+    await auth.signInWithGoogle();
   }
 
   void _continueAsGuest() async {
+    _clearAllErrors();
     final auth = context.read<AuthProvider>();
-    final success = await auth.continueAsGuest();
-    if (!success && mounted && auth.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(auth.errorMessage!),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
-    }
+    await auth.continueAsGuest();
     // Navigation is handled by auth state listener in main.dart
   }
 
@@ -190,42 +253,73 @@ class _LoginScreenState extends State<LoginScreen> {
                           TextFormField(
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
-                            validator: (v) {
-                              if (v == null || v.trim().isEmpty) {
-                                return 'Please enter your email';
-                              }
-                              if (!v.contains('@')) {
-                                return 'Please enter a valid email';
-                              }
-                              return null;
-                            },
                             decoration: InputDecoration(
                               hintText: 'Email Address',
                               prefixIcon: Icon(
                                 Icons.mail_outline_rounded,
                                 size: 20,
-                                color: theme.colorScheme.onSurfaceVariant,
+                                color: _emailError != null
+                                    ? theme.colorScheme.error
+                                    : theme.colorScheme.onSurfaceVariant,
                               ),
+                              enabledBorder: _emailError != null
+                                  ? OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                      borderSide: BorderSide(
+                                        color: theme.colorScheme.error.withValues(alpha: 0.5),
+                                      ),
+                                    )
+                                  : null,
+                              focusedBorder: _emailError != null
+                                  ? OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                      borderSide: BorderSide(
+                                        color: theme.colorScheme.error,
+                                        width: 1.5,
+                                      ),
+                                    )
+                                  : null,
                             ),
                           ),
+                          // Email inline error
+                          if (_emailError != null)
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                left: 12, top: 6, bottom: 2,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.error_outline_rounded,
+                                    size: 14,
+                                    color: theme.colorScheme.error,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _emailError!,
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: theme.colorScheme.error,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           const SizedBox(height: 16),
 
                           // Password Input
                           TextFormField(
                             controller: _passwordController,
                             obscureText: _obscurePassword,
-                            validator: (v) {
-                              if (v == null || v.isEmpty) {
-                                return 'Please enter your password';
-                              }
-                              return null;
-                            },
                             decoration: InputDecoration(
                               hintText: 'Password',
                               prefixIcon: Icon(
                                 Icons.lock_outline_rounded,
                                 size: 20,
-                                color: theme.colorScheme.onSurfaceVariant,
+                                color: _passwordError != null
+                                    ? theme.colorScheme.error
+                                    : theme.colorScheme.onSurfaceVariant,
                               ),
                               suffixIcon: IconButton(
                                 icon: Icon(
@@ -241,8 +335,50 @@ class _LoginScreenState extends State<LoginScreen> {
                                   });
                                 },
                               ),
+                              enabledBorder: _passwordError != null
+                                  ? OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                      borderSide: BorderSide(
+                                        color: theme.colorScheme.error.withValues(alpha: 0.5),
+                                      ),
+                                    )
+                                  : null,
+                              focusedBorder: _passwordError != null
+                                  ? OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                      borderSide: BorderSide(
+                                        color: theme.colorScheme.error,
+                                        width: 1.5,
+                                      ),
+                                    )
+                                  : null,
                             ),
                           ),
+                          // Password inline error
+                          if (_passwordError != null)
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                left: 12, top: 6, bottom: 2,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.error_outline_rounded,
+                                    size: 14,
+                                    color: theme.colorScheme.error,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _passwordError!,
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: theme.colorScheme.error,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           const SizedBox(height: 8),
 
                           // Forgot Password
@@ -260,7 +396,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 8),
 
                           // Login Button
                           SizedBox(

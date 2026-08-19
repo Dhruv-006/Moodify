@@ -14,7 +14,9 @@ import '../../widgets/insights/mood_calendar_view.dart';
 import '../../widgets/insights/empty_insights_view.dart';
 
 class InsightsScreen extends StatefulWidget {
-  const InsightsScreen({super.key});
+  final VoidCallback? onTrackMood;
+
+  const InsightsScreen({super.key, this.onTrackMood});
 
   @override
   State<InsightsScreen> createState() => _InsightsScreenState();
@@ -186,7 +188,7 @@ class _InsightsScreenState extends State<InsightsScreen>
           ),
 
           if (filteredEntries.isEmpty)
-            const EmptyInsightsView()
+            EmptyInsightsView(onTrackMood: widget.onTrackMood)
           else ...[
             // Premium Summary Card
             SliverToBoxAdapter(
